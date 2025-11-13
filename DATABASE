@@ -1,0 +1,237 @@
+-- -----------------------------------------------------------
+-- 1. CONFIGURACIÓN INICIAL Y BITÁCORA (AUDIT LOG)
+-- -----------------------------------------------------------
+
+-- Crear extensión UUID
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 🗃️ Tabla de Bitácora Centralizada (Audit Log)
+-- Esta tabla reemplaza a created_at y updated_at en las tablas de negocio.
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    table_name VARCHAR(100) NOT NULL,
+    record_id UUID NOT NULL,
+    operation CHAR(1) NOT NULL, -- 'I' (Insert), 'U' (Update), 'D' (Delete)
+    performed_by UUID NULL, -- ID del usuario que realizó la acción
+    performed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    old_data JSONB, -- Datos antes de la modificación (para UPDATE y DELETE)
+    new_data JSONB -- Datos después de la modificación (para INSERT y UPDATE)
+);
+CREATE INDEX idx_audit_log_record ON audit_log(table_name, record_id);
+CREATE INDEX idx_audit_log_performed_by ON audit_log(performed_by);
+CREATE INDEX idx_audit_log_operation ON audit_log(operation);
+
+-- Función de utilidad para simular el ID del usuario actual (necesario para la auditoría)
+-- En una aplicación real, esta configuración se establecería al inicio de la sesión.
+CREATE OR REPLACE FUNCTION current_user_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN current_setting('app.current_user_id', true)::UUID;
+EXCEPTION WHEN invalid_text_representation THEN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Función para registrar auditoría (Bitácora)
+CREATE OR REPLACE FUNCTION log_auditoria()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+    v_user_id UUID;
+BEGIN
+    v_user_id := current_user_id();
+
+    IF (TG_OP = 'UPDATE') THEN
+        -- Excluye las columnas que pueden cambiar constantemente sin ser de negocio (e.g., last_activity en user_sessions)
+        -- Adaptar la lógica de to_jsonb(OLD) y to_jsonb(NEW) si se necesita un control fino.
+        v_old_data := to_jsonb(OLD);
+        v_new_data := to_jsonb(NEW);
+        
+        -- Opcional: solo auditar si hay un cambio real en los datos de negocio
+        IF v_old_data IS DISTINCT FROM v_new_data THEN
+            INSERT INTO audit_log (table_name, record_id, operation, performed_by, old_data, new_data)
+            VALUES (TG_TABLE_NAME, NEW.id, 'U', v_user_id, v_old_data, v_new_data);
+        END IF;
+        RETURN NEW;
+    ELSIF (TG_OP = 'DELETE') THEN
+        v_old_data := to_jsonb(OLD);
+        INSERT INTO audit_log (table_name, record_id, operation, performed_by, old_data)
+        VALUES (TG_TABLE_NAME, OLD.id, 'D', v_user_id, v_old_data);
+        RETURN OLD;
+    ELSIF (TG_OP = 'INSERT') THEN
+        v_new_data := to_jsonb(NEW);
+        INSERT INTO audit_log (table_name, record_id, operation, performed_by, new_data)
+        VALUES (TG_TABLE_NAME, NEW.id, 'I', v_user_id, v_new_data);
+        RETURN NEW;
+    END IF;
+    RETURN NULL;
+END;
+$$ language 'plpgsql';
+
+-- -----------------------------------------------------------
+-- 2. CREACIÓN DE TABLAS DE NEGOCIO (SIN created_at/updated_at)
+-- -----------------------------------------------------------
+
+-- 👥 Tabla de usuarios
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    is_active BOOLEAN DEFAULT true,
+    email_verified BOOLEAN DEFAULT false
+);
+
+-- 🛍️ Tabla de productos
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    barcode VARCHAR(50) NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    brand VARCHAR(100),
+    category VARCHAR(100),
+    image_url TEXT,
+    description TEXT
+);
+
+-- 📈 Tabla de resultados de precios
+CREATE TABLE price_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL,
+    platform VARCHAR(50) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'USD',
+    shipping DECIMAL(10,2) DEFAULT 0,
+    total_price DECIMAL(10,2) NOT NULL,
+    product_url TEXT NOT NULL,
+    availability BOOLEAN DEFAULT true,
+    last_verified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- 🔎 Tabla de historial de búsquedas (Mantiene searched_at como dato de negocio)
+CREATE TABLE search_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    search_location VARCHAR(255),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- ⭐ Tabla de favoritos (Mantiene added_at como dato de negocio)
+CREATE TABLE favorites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL,
+    product_id UUID NOT NULL,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    UNIQUE(user_id, product_id)
+);
+
+-- 🔑 Tabla de sesiones de usuario (Mantiene last_activity como dato de negocio)
+CREATE TABLE user_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    device_info TEXT,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 🧠 Tabla de caché de búsquedas
+CREATE TABLE search_cache (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    barcode VARCHAR(50) NOT NULL,
+    search_data JSONB NOT NULL,
+    expires_at TIMESTAMP NOT NULL
+);
+
+-- 📡 Tabla de logs de APIs externas
+CREATE TABLE api_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    platform VARCHAR(50) NOT NULL,
+    endpoint VARCHAR(255) NOT NULL,
+    status_code INTEGER,
+    response_time INTEGER,
+    success BOOLEAN DEFAULT false,
+    error_message TEXT
+);
+
+-- -----------------------------------------------------------
+-- 3. APLICACIÓN DE TRIGGERS DE BITÁCORA
+-- -----------------------------------------------------------
+
+-- Aplicación de Triggers de Bitácora a las tablas de negocio clave
+-- Nota: No se aplican a tablas con alta frecuencia de inserción/log (e.g., search_history, api_logs, search_cache)
+-- para mantener el rendimiento y porque ya cumplen una función de "log".
+CREATE TRIGGER audit_users_changes
+AFTER INSERT OR UPDATE OR DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION log_auditoria();
+
+CREATE TRIGGER audit_products_changes
+AFTER INSERT OR UPDATE OR DELETE ON products
+FOR EACH ROW EXECUTE FUNCTION log_auditoria();
+
+CREATE TRIGGER audit_favorites_changes
+AFTER INSERT OR UPDATE OR DELETE ON favorites
+FOR EACH ROW EXECUTE FUNCTION log_auditoria();
+
+-- -----------------------------------------------------------
+-- 4. ÍNDICES Y VISTAS
+-- -----------------------------------------------------------
+
+-- Índices para optimización de consultas
+CREATE INDEX idx_products_barcode ON products(barcode);
+CREATE INDEX idx_products_category ON products(category);
+CREATE INDEX idx_price_results_product_id ON price_results(product_id);
+CREATE INDEX idx_price_results_platform ON price_results(platform);
+CREATE INDEX idx_price_results_total_price ON price_results(total_price);
+CREATE INDEX idx_search_history_user_date ON search_history(user_id, searched_at DESC);
+CREATE INDEX idx_search_history_product ON search_history(product_id);
+CREATE INDEX idx_favorites_user ON favorites(user_id);
+CREATE INDEX idx_user_sessions_token ON user_sessions(token_hash);
+CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
+CREATE INDEX idx_search_cache_barcode ON search_cache(barcode);
+CREATE INDEX idx_search_cache_expires ON search_cache(expires_at);
+
+-- Índices para búsqueda de texto completo (Full-Text Search)
+CREATE INDEX idx_products_name_search ON products USING gin(to_tsvector('spanish', product_name));
+CREATE INDEX idx_products_brand_search ON products USING gin(to_tsvector('spanish', brand));
+
+-- Vista para productos con mejores precios
+CREATE VIEW product_best_prices AS
+SELECT 
+    p.id,
+    p.barcode,
+    p.product_name,
+    p.brand,
+    p.category,
+    MIN(pr.total_price) as best_price,
+    AVG(pr.total_price) as average_price,
+    COUNT(pr.id) as price_count,
+    MAX(pr.last_verified) as last_updated
+FROM products p
+LEFT JOIN price_results pr ON p.id = pr.product_id
+WHERE pr.availability = true
+GROUP BY p.id, p.barcode, p.product_name, p.brand, p.category;
+
+-- -----------------------------------------------------------
+-- 5. POLÍTICAS DE SEGURIDAD RLS (ROW LEVEL SECURITY)
+-- -----------------------------------------------------------
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE search_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY;
+
+-- Nota: current_user_id() es la función de utilidad definida previamente.
+CREATE POLICY user_policy ON users FOR ALL USING (id = current_user_id());
+CREATE POLICY search_history_policy ON search_history FOR ALL USING (user_id = current_user_id());
+CREATE POLICY favorites_policy ON favorites FOR ALL USING (user_id = current_user_id());
+CREATE POLICY user_sessions_policy ON user_sessions FOR ALL USING (user_id = current_user_id());
