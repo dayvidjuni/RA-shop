@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 -- -----------------------------------------------------------
 -- 1. CONFIGURACIÓN INICIAL Y BITÁCORA (AUDIT LOG)
 -- -----------------------------------------------------------
@@ -74,6 +75,12 @@ $$ language 'plpgsql';
 -- -----------------------------------------------------------
 
 -- 👥 Tabla de usuarios
+=======
+-- Crear extensión UUID
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Tabla de usuarios
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -81,10 +88,19 @@ CREATE TABLE users (
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     is_active BOOLEAN DEFAULT true,
+<<<<<<< HEAD
     email_verified BOOLEAN DEFAULT false
 );
 
 -- 🛍️ Tabla de productos
+=======
+    email_verified BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de productos
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     barcode VARCHAR(50) NOT NULL,
@@ -92,10 +108,19 @@ CREATE TABLE products (
     brand VARCHAR(100),
     category VARCHAR(100),
     image_url TEXT,
+<<<<<<< HEAD
     description TEXT
 );
 
 -- 📈 Tabla de resultados de precios
+=======
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de resultados de precios
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE price_results (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     product_id UUID NOT NULL,
@@ -107,10 +132,18 @@ CREATE TABLE price_results (
     product_url TEXT NOT NULL,
     availability BOOLEAN DEFAULT true,
     last_verified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+<<<<<<< HEAD
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
 -- 🔎 Tabla de historial de búsquedas (Mantiene searched_at como dato de negocio)
+=======
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+-- Tabla de historial de búsquedas
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE search_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
@@ -121,7 +154,11 @@ CREATE TABLE search_history (
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
+<<<<<<< HEAD
 -- ⭐ Tabla de favoritos (Mantiene added_at como dato de negocio)
+=======
+-- Tabla de favoritos
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE favorites (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
@@ -133,7 +170,11 @@ CREATE TABLE favorites (
     UNIQUE(user_id, product_id)
 );
 
+<<<<<<< HEAD
 -- 🔑 Tabla de sesiones de usuario (Mantiene last_activity como dato de negocio)
+=======
+-- Tabla de sesiones de usuario
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE user_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
@@ -141,18 +182,34 @@ CREATE TABLE user_sessions (
     expires_at TIMESTAMP NOT NULL,
     device_info TEXT,
     last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+<<<<<<< HEAD
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- 🧠 Tabla de caché de búsquedas
+=======
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Tabla de caché de búsquedas
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE search_cache (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     barcode VARCHAR(50) NOT NULL,
     search_data JSONB NOT NULL,
+<<<<<<< HEAD
     expires_at TIMESTAMP NOT NULL
 );
 
 -- 📡 Tabla de logs de APIs externas
+=======
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de logs de APIs externas
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE TABLE api_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     platform VARCHAR(50) NOT NULL,
@@ -160,6 +217,7 @@ CREATE TABLE api_logs (
     status_code INTEGER,
     response_time INTEGER,
     success BOOLEAN DEFAULT false,
+<<<<<<< HEAD
     error_message TEXT
 );
 
@@ -187,6 +245,13 @@ FOR EACH ROW EXECUTE FUNCTION log_auditoria();
 -- -----------------------------------------------------------
 
 -- Índices para optimización de consultas
+=======
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para optimización
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 CREATE INDEX idx_products_barcode ON products(barcode);
 CREATE INDEX idx_products_category ON products(category);
 CREATE INDEX idx_price_results_product_id ON price_results(product_id);
@@ -199,11 +264,43 @@ CREATE INDEX idx_user_sessions_token ON user_sessions(token_hash);
 CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
 CREATE INDEX idx_search_cache_barcode ON search_cache(barcode);
 CREATE INDEX idx_search_cache_expires ON search_cache(expires_at);
+<<<<<<< HEAD
 
 -- Índices para búsqueda de texto completo (Full-Text Search)
 CREATE INDEX idx_products_name_search ON products USING gin(to_tsvector('spanish', product_name));
 CREATE INDEX idx_products_brand_search ON products USING gin(to_tsvector('spanish', brand));
 
+=======
+CREATE INDEX idx_api_logs_platform_date ON api_logs(platform, created_at);
+
+-- Índices para búsqueda de texto
+CREATE INDEX idx_products_name_search ON products USING gin(to_tsvector('spanish', product_name));
+CREATE INDEX idx_products_brand_search ON products USING gin(to_tsvector('spanish', brand));
+
+-- Función para actualizar updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Triggers para updated_at
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_price_results_updated_at BEFORE UPDATE ON price_results FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Función para limpiar caché expirado
+CREATE OR REPLACE FUNCTION cleanup_expired_cache()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM search_cache WHERE expires_at < CURRENT_TIMESTAMP;
+    DELETE FROM user_sessions WHERE expires_at < CURRENT_TIMESTAMP;
+END;
+$$ LANGUAGE plpgsql;
+
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 -- Vista para productos con mejores precios
 CREATE VIEW product_best_prices AS
 SELECT 
@@ -221,17 +318,28 @@ LEFT JOIN price_results pr ON p.id = pr.product_id
 WHERE pr.availability = true
 GROUP BY p.id, p.barcode, p.product_name, p.brand, p.category;
 
+<<<<<<< HEAD
 -- -----------------------------------------------------------
 -- 5. POLÍTICAS DE SEGURIDAD RLS (ROW LEVEL SECURITY)
 -- -----------------------------------------------------------
 
+=======
+-- Políticas de seguridad RLS (opcional para mayor seguridad)
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE search_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY;
 
+<<<<<<< HEAD
 -- Nota: current_user_id() es la función de utilidad definida previamente.
 CREATE POLICY user_policy ON users FOR ALL USING (id = current_user_id());
 CREATE POLICY search_history_policy ON search_history FOR ALL USING (user_id = current_user_id());
 CREATE POLICY favorites_policy ON favorites FOR ALL USING (user_id = current_user_id());
 CREATE POLICY user_sessions_policy ON user_sessions FOR ALL USING (user_id = current_user_id());
+=======
+CREATE POLICY user_policy ON users FOR ALL USING (id = current_user_id());
+CREATE POLICY search_history_policy ON search_history FOR ALL USING (user_id = current_user_id());
+CREATE POLICY favorites_policy ON favorites FOR ALL USING (user_id = current_user_id());
+CREATE POLICY user_sessions_policy ON user_sessions FOR ALL USING (user_id = current_user_id());
+>>>>>>> 9ecc672881f3f5702e51c4d930c495b02f762c5a
